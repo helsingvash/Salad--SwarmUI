@@ -2,7 +2,7 @@
 
 set -e
 
-DESTINO="$HOME/SwarmUI/Models/Lora"
+DESTINO="$HOME/Salad-SW/SwarmUI/Models"
 mkdir -p "$DESTINO"
 
 echo "Cole a URL ou apenas o domínio do Cloudflare Tunnel:"
