@@ -81,7 +81,6 @@ if [ ! -f "${SWARMUI_SCRIPT[0]}" ]; then
 fi
 
 if [ ! -x "${SWARMUI_SCRIPT[0]}" ]; then
-    echo "[INFO] Corrigindo permissão do SwarmUI..."
     chmod +x "${SWARMUI_SCRIPT[0]}"
 fi
 
@@ -103,8 +102,6 @@ echo "[INFO] Configurando Authtoken..."
 
 unset NGROK_TOKEN
 
-sleep 2
-
 # ---------------------------------------------------------------------------
 # INICIAR SWARMUI
 # ---------------------------------------------------------------------------
@@ -122,8 +119,10 @@ if ! kill -0 "$SWARMUI_PID" 2>/dev/null; then
     exit 1
 fi
 
+echo "[INFO] SwarmUI iniciado."
+
 # ---------------------------------------------------------------------------
-# ABRIR TÚNEL NGROK
+# ABRIR NGROK
 # ---------------------------------------------------------------------------
 
 echo "[INFO] Abrindo túnel público..."
@@ -134,18 +133,36 @@ echo "[INFO] Abrindo túnel público..."
 NGROK_PID=$!
 
 # ---------------------------------------------------------------------------
-# AGUARDAR URL DO NGROK
+# AGUARDAR URL DO NGROK SEM ENCERRAR O SCRIPT
 # ---------------------------------------------------------------------------
 
 PUBLIC_URL=""
 
 echo "[INFO] Aguardando URL pública do ngrok..."
 
-for i in {1..30}; do
+while true; do
 
+    # Verifica se o processo do ngrok ainda está vivo
+    if ! kill -0 "$NGROK_PID" 2>/dev/null; then
+        echo "[ERRO] O processo do ngrok foi encerrado."
+        echo
+        cat /tmp/ngrok.log
+
+        echo
+        echo "[INFO] Tentando iniciar o ngrok novamente..."
+
+        "$NGROK_BIN" http "127.0.0.1:${SWARMUI_PORT}" \
+            >/tmp/ngrok.log 2>&1 &
+
+        NGROK_PID=$!
+
+        sleep 3
+    fi
+
+    # Tenta obter a URL
     PUBLIC_URL=$(
         curl -s http://127.0.0.1:4040/api/tunnels \
-        | grep -o 'https://[^"]*' \
+        | sed -n 's/.*"public_url":"\([^"]*\)".*/\1/p' \
         | head -n 1
     )
 
@@ -153,23 +170,9 @@ for i in {1..30}; do
         break
     fi
 
-    sleep 1
+    sleep 2
 
 done
-
-# ---------------------------------------------------------------------------
-# VERIFICAR URL
-# ---------------------------------------------------------------------------
-
-if [ -z "$PUBLIC_URL" ]; then
-    echo
-    echo "[ERRO] Não foi possível obter a URL pública do ngrok."
-    echo
-    echo "================ LOG DO NGROK ================"
-    cat /tmp/ngrok.log
-    echo "==============================================="
-    exit 1
-fi
 
 # ---------------------------------------------------------------------------
 # EXIBIR URL
@@ -192,12 +195,30 @@ cleanup() {
     echo
     echo "[INFO] Encerrando..."
 
-    kill "$NGROK_PID" 2>/dev/null || true
-    kill "$SWARMUI_PID" 2>/dev/null || true
+    if [ -n "${NGROK_PID:-}" ]; then
+        kill "$NGROK_PID" 2>/dev/null || true
+    fi
+
+    if [ -n "${SWARMUI_PID:-}" ]; then
+        kill "$SWARMUI_PID" 2>/dev/null || true
+    fi
 
     echo "[INFO] Processos encerrados."
 }
 
 trap cleanup EXIT INT TERM
 
-wait "$SWARMUI_PID"
+# ---------------------------------------------------------------------------
+# MANTER O SCRIPT VIVO
+# ---------------------------------------------------------------------------
+
+while true; do
+
+    if ! kill -0 "$SWARMUI_PID" 2>/dev/null; then
+        echo "[ERRO] O SwarmUI foi encerrado."
+        break
+    fi
+
+    sleep 10
+
+done
